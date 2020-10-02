@@ -28,6 +28,7 @@ from wandb import env, util
 from wandb import Error
 from wandb import wandb_agent
 from wandb import wandb_controller
+from wandb import wandb_sdk
 from wandb.apis import InternalApi, PublicApi
 from wandb.integration.magic import magic_install
 from wandb.old.settings import Settings
@@ -85,9 +86,12 @@ def display_error(func):
 _api = None  # caching api instance allows patching from unit tests
 
 
-def _get_cling_api():
+def _get_cling_api(reset=None):
     """Get a reference to the internal api with cling settings."""
     global _api
+    if reset:
+        _api = None
+        wandb_sdk.wandb_setup._setup(_reset=True)
     if _api is None:
         # TODO(jhr): make a settings object that is better for non runs.
         wandb.setup(settings=wandb.Settings(_cli_only_mode=True))
@@ -194,22 +198,31 @@ def projects(entity, display=True):
 def login(key, host, cloud, relogin, anonymously, no_offline=False):
     # TODO: handle no_offline
     anon_mode = "must" if anonymously else "never"
-    wandb.setup(
-        settings=wandb.Settings(_cli_only_mode=True, anonymous=anon_mode, base_url=host)
-    )
-    api = _get_cling_api()
 
+    if host and not host.startswith("http"):
+        raise ClickException("host must start with http(s)://")
+
+    _api = InternalApi()
     if host == "https://api.wandb.ai" or (host is None and cloud):
-        api.clear_setting("base_url", globally=True, persist=True)
+        _api.clear_setting("base_url", globally=True, persist=True)
         # To avoid writing an empty local settings file, we only clear if it exists
         if os.path.exists(Settings._local_path()):
-            api.clear_setting("base_url", persist=True)
+            _api.clear_setting("base_url", persist=True)
     elif host:
-        if not host.startswith("http"):
-            raise ClickException("host must start with http(s)://")
-        api.set_setting("base_url", host.strip("/"), globally=True, persist=True)
+        # force relogin if host is specified
+        _api.set_setting("base_url", host.strip("/"), globally=True, persist=True)
     key = key[0] if len(key) > 0 else None
+    if host or cloud or key:
+        relogin = True
 
+    wandb.setup(
+        settings=wandb.Settings(
+            _cli_only_mode=True,
+            _disable_viewer=relogin,
+            anonymous=anon_mode,
+            base_url=host,
+        )
+    )
     wandb.login(relogin=relogin, key=key, anonymous=anon_mode, host=host, force=True)
 
 
@@ -280,9 +293,10 @@ def init(ctx, project, entity, reset):
         click.echo(
             click.style("Let's setup this directory for W&B!", fg="green", bold=True)
         )
-    api = InternalApi()
+    api = _get_cling_api()
     if api.api_key is None:
         ctx.invoke(login)
+        api = _get_cling_api(reset=True)
 
     viewer = api.viewer()
 
@@ -297,6 +311,7 @@ def init(ctx, project, entity, reset):
             )
         )
         ctx.invoke(login)
+        api = _get_cling_api(reset=True)
 
     # This shouldn't happen.
     viewer = api.viewer()
@@ -439,10 +454,11 @@ def sync(
     clean_old_hours=24,
     clean_force=None,
 ):
-    api = InternalApi()
+    api = _get_cling_api()
     if api.api_key is None:
         wandb.termlog("Login to W&B to sync offline runs")
         ctx.invoke(login, no_offline=True)
+        api = _get_cling_api(reset=True)
 
     if ignore:
         exclude_globs = ignore
@@ -609,10 +625,11 @@ def sweep(
         wandb.termwarn("Unable to parse settings parameter", repeat=False)
         return ret
 
-    api = InternalApi()
+    api = _get_cling_api()
     if api.api_key is None:
         wandb.termlog("Login to W&B to use the sweep feature")
         ctx.invoke(login, no_offline=True)
+        api = _get_cling_api(reset=True)
 
     sweep_obj_id = None
     if update:
@@ -674,11 +691,17 @@ def sweep(
             return
 
     env = os.environ
-    entity = entity or env.get("WANDB_ENTITY") or config.get("entity")
+    entity = (
+        entity
+        or env.get("WANDB_ENTITY")
+        or config.get("entity")
+        or api.settings("entity")
+    )
     project = (
         project
         or env.get("WANDB_PROJECT")
         or config.get("project")
+        or api.settings("project")
         or util.auto_project_name(config.get("program"))
     )
     sweep_id = api.upsert_sweep(
@@ -732,10 +755,11 @@ def sweep(
 @click.argument("sweep_id")
 @display_error
 def agent(ctx, project, entity, count, sweep_id):
-    api = InternalApi()
+    api = _get_cling_api()
     if api.api_key is None:
         wandb.termlog("Login to W&B to use the sweep agent feature")
         ctx.invoke(login, no_offline=True)
+        api = _get_cling_api(reset=True)
 
     wandb.termlog("Starting wandb agent 🕵️")
     wandb_agent.run_agent(sweep_id, entity=entity, project=project, count=count)
