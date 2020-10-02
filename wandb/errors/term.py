@@ -54,5 +54,5 @@ def termerror(string, **kwargs):
     silent = env.get_log_level() == ""
     string = '\n'.join(['{} {}'.format(ERROR_STRING, s)
                         for s in string.split('\n')])
-    termlog(string=string, newline=True, silent=True, **kwargs)
+    termlog(string=string, newline=True, **kwargs)
 
