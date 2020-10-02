@@ -20,6 +20,7 @@ CONFIG_PATHS = 'WANDB_CONFIG_PATHS'
 SHOW_RUN = 'WANDB_SHOW_RUN'
 DEBUG = 'WANDB_DEBUG'
 SILENT = 'WANDB_SILENT'
+WARNINGS = 'WANDB_WARNINGS'
 INITED = 'WANDB_INITED'
 DIR = 'WANDB_DIR'
 # Deprecate DESCRIPTION in a future release
@@ -69,7 +70,7 @@ def immutable_keys():
     """These are env keys that shouldn't change within a single process.  We use this to maintain
     certain values between multiple calls to wandb.init within a single process."""
     return [DIR, ENTITY, PROJECT, API_KEY, IGNORE, DISABLE_CODE, DOCKER, MODE, BASE_URL,
-            ERROR_REPORTING, CRASH_NOSYNC_TIME, MAGIC, USERNAME, USER_EMAIL, DIR, SILENT, CONFIG_PATHS,
+            ERROR_REPORTING, CRASH_NOSYNC_TIME, MAGIC, USERNAME, USER_EMAIL, DIR, SILENT, WARNINGS, CONFIG_PATHS,
             ANONYMOUS, RUN_GROUP, JOB_TYPE, TAGS, RESUME, AGENT_REPORT_INTERVAL, HTTP_TIMEOUT,
             HOST, CACHE_DIR, USE_V1_ARTIFACTS]
 
@@ -274,6 +275,20 @@ def set_project(value, env=None):
     if env is None:
         env = os.environ
     env[PROJECT] = value or "uncategorized"
+
+
+def get_silent(env=None):
+    if env is None:
+        env = os.environ
+    val = env.get(SILENT, False)
+    return val
+
+
+def get_warnings(env=None):
+    if env is None:
+        env = os.environ
+    val = env.get(WARNINGS, "enable")
+    return val
 
 
 def should_save_code():
